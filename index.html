@@ -158,6 +158,8 @@ const STAGES = [
   { name: 'Medium',      from: 57, to: 63,       color: '#2a7a4b', text: '#ffffff' },
   { name: 'Well Done',   from: 70, to: Infinity, color: null }
 ];
+// Roter Verlauf im hohen Bereich (Spitze bei Well Done), gleich lang wie der gelbe
+const HOT = { at: 70, color: '#e0442b' };
 const pos = t => (Math.max(SCALE_MIN, Math.min(SCALE_MAX, t)) - SCALE_MIN) / (SCALE_MAX - SCALE_MIN) * 100;
 function stageOf(c) {
   const s = STAGES.find(x => c >= x.from && c < x.to);
@@ -167,7 +169,11 @@ function stageOf(c) {
   return { label: '', color: null };
 }
 function buildStages() {
-  $('bands').innerHTML = STAGES.filter(s => s.color).map(s => `<i style="left:${pos(s.from)}%;width:${pos(s.to) - pos(s.from)}%;background:${s.color}"></i>`).join('');
+  const cs = STAGES.filter(s => s.color), mid = s => (s.from + s.to) / 2, FADE = 5;
+  const stops = ['var(--line) 0%', `var(--line) ${pos(mid(cs[0]) - FADE)}%`]
+    .concat(cs.map(s => `${s.color} ${pos(mid(s))}%`))
+    .concat([`${HOT.color} ${pos(HOT.at)}%`, `var(--line) ${pos(HOT.at + FADE)}%`, 'var(--line) 100%']);
+  $('bands').style.background = `linear-gradient(to right, ${stops.join(', ')})`;
   $('stages').innerHTML = STAGES.filter(s => s.color).map(s => `<div><i style="background:${s.color || 'var(--line)'}"></i><p style="margin:0"><b>${s.name}</b><span>${s.from}${isFinite(s.to) ? '–' + s.to : '+'} °C</span></p></div>`).join('');
 }
 function showStage(c) {
