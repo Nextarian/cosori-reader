@@ -31,13 +31,33 @@
   .label { font-size:13px; color:var(--muted); margin:0; }
   .hero { padding:20px 18px 16px; transition:background .3s, border-color .3s; }
   .hero.hot { background:var(--core-soft); border-color:var(--core); }
+  .hero.alarm { animation:blink .9s ease-in-out infinite; }
+  @keyframes blink {
+    0%, 100% { box-shadow:0 0 0 0 transparent; border-color:var(--line); }
+    50%      { box-shadow:0 0 0 6px var(--core); border-color:var(--core); }
+  }
+  @media (prefers-reduced-motion: reduce) { .hero.alarm { animation:none; box-shadow:0 0 0 6px var(--core); } }
+  #stopAlarm { margin-top:16px; width:100%; padding:14px; border:0; border-radius:14px; background:var(--core); color:#fff; font-size:16px; font-weight:680; }
+  .small { padding:9px 12px; margin-top:10px; font-size:13px; }
   .big { display:flex; align-items:baseline; gap:6px; margin:4px 0 16px; line-height:1; }
   #core { font-size:clamp(68px, 24vw, 112px); font-weight:720; font-variant-numeric:tabular-nums; letter-spacing:-2px; color:var(--core); }
   .big small { font-size:26px; font-weight:560; color:var(--muted); }
-  .gauge { position:relative; height:14px; border-radius:99px; background:var(--line); overflow:visible; }
-  #fill { height:100%; width:0; border-radius:99px; background:var(--core); transition:width .6s ease; }
-  #mark { position:absolute; top:-5px; width:3px; height:24px; border-radius:2px; background:var(--ink); left:60%; transform:translateX(-1px); transition:left .2s; }
-  .scale { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-top:8px; }
+  .pill { display:inline-block; margin:0 0 16px; padding:6px 14px; border-radius:99px; font-size:15px; font-weight:650;
+          background:var(--line); color:var(--ink); transition:background .3s; }
+  .gauge { position:relative; height:18px; margin:6px 0 0; }
+  #bands { position:absolute; inset:0; border-radius:99px; overflow:hidden; background:var(--line);
+           outline:1px solid color-mix(in srgb, var(--ink) 28%, transparent); outline-offset:0; }
+  #bands i { position:absolute; top:0; bottom:0; box-shadow:inset 2px 0 0 var(--surface); }
+  #mark { position:absolute; top:-5px; width:3px; height:28px; border-radius:2px; background:var(--ink); left:60%; transform:translateX(-1px); transition:left .2s; opacity:.8; }
+  #needle { position:absolute; top:50%; width:26px; height:26px; margin:-13px 0 0 -13px; border-radius:50%; background:#fff;
+            border:4px solid var(--core); box-shadow:0 1px 4px rgba(0,0,0,.35); left:0; transition:left .5s ease; }
+  .scale { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-top:10px; }
+  .stages { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:6px; margin-top:14px; }
+  .stages div { display:flex; align-items:center; gap:5px; font-size:clamp(10px, 3vw, 13px); line-height:1.2; min-width:0; }
+  .stages i { width:12px; height:12px; border-radius:4px; flex:none; outline:1px solid color-mix(in srgb, var(--ink) 28%, transparent); }
+  .stages p { min-width:0; }
+  .stages b { display:block; font-weight:650; }
+  .stages span { color:var(--muted); }
 
   .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .val { font-size:34px; font-weight:680; font-variant-numeric:tabular-nums; margin-top:6px; }
@@ -83,14 +103,18 @@
   <section class="card hero" id="hero">
     <p class="label">Kerntemperatur (Spitze)</p>
     <div class="big"><span id="core">––,–</span><small>°C</small></div>
-    <div class="gauge"><div id="fill"></div><div id="mark"></div></div>
-    <div class="scale"><span>0</span><span>50</span><span>100 °C</span></div>
+    <div class="pill" id="stage">Noch keine Messung</div>
+    <div class="gauge"><div id="bands"></div><div id="mark"></div><div id="needle"></div></div>
+    <div class="scale"><span>30</span><span>60</span><span>90 °C</span></div>
+    <div class="stages" id="stages"></div>
+    <button id="stopAlarm" hidden>Alarm stoppen</button>
   </section>
 
   <section class="two">
     <div class="card"><p class="label">Griff / Umgebung</p><div class="val"><span id="amb">––,–</span> °C</div></div>
     <div class="card"><p class="label">Zieltemperatur</p>
       <div class="stepper"><button id="minus" aria-label="Ziel senken">−</button><b id="target">60</b><button id="plus" aria-label="Ziel erhöhen">+</button></div>
+      <button class="ghost small" id="soundBtn" aria-pressed="true">Ton bei Alarm: an</button>
     </div>
   </section>
 
@@ -126,9 +150,34 @@ const SERVICE_UUID = 0xfff0, CHAR_UUID = 0xfff1;
 // [Rohwert, °C], aufsteigend. Hier später saubere Messpunkte eintragen.
 const CAL = [[338, 0.0], [847, 21.0], [935, 33.0], [2082, 100.0]];
 const WINDOW_MS = 10 * 60 * 1000;
+// Garstufen (Rind, Kerntemperatur). Farben und Grenzen hier anpassen.
+const SCALE_MIN = 30, SCALE_MAX = 90;
+const STAGES = [
+  { name: 'Englisch',    from: 48, to: 52,       color: '#f6e27a', text: '#13232f' },
+  { name: 'Medium Rare', from: 52, to: 57,       color: '#a6dc96', text: '#13232f' },
+  { name: 'Medium',      from: 57, to: 63,       color: '#2a7a4b', text: '#ffffff' },
+  { name: 'Well Done',   from: 70, to: Infinity, color: null }
+];
+const pos = t => (Math.max(SCALE_MIN, Math.min(SCALE_MAX, t)) - SCALE_MIN) / (SCALE_MAX - SCALE_MIN) * 100;
+function stageOf(c) {
+  const s = STAGES.find(x => c >= x.from && c < x.to);
+  if (s) return { label: s.name, color: s.color, text: s.text };
+  if (c < STAGES[0].from) return { label: 'Unter Englisch', color: null };
+  if (c >= 63 && c < 70) return { label: 'Medium Well', color: null };
+  return { label: '', color: null };
+}
+function buildStages() {
+  $('bands').innerHTML = STAGES.filter(s => s.color).map(s => `<i style="left:${pos(s.from)}%;width:${pos(s.to) - pos(s.from)}%;background:${s.color}"></i>`).join('');
+  $('stages').innerHTML = STAGES.filter(s => s.color).map(s => `<div><i style="background:${s.color || 'var(--line)'}"></i><p style="margin:0"><b>${s.name}</b><span>${s.from}${isFinite(s.to) ? '–' + s.to : '+'} °C</span></p></div>`).join('');
+}
+function showStage(c) {
+  const r = stageOf(c), el = $('stage');
+  el.textContent = r.label; el.style.display = r.label ? '' : 'none';
+  el.style.background = r.color || ''; el.style.color = r.text || '';
+}
 
 const $ = id => document.getElementById(id);
-const st = { target: 60, hist: [], log: [], n: 0, alarmed: false, ctx: null };
+const st = { target: 60, hist: [], log: [], n: 0, alarmed: false, sound: true, ringTimer: null, ctx: null, tries: 0, dev: null };
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : +v; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch {} }
@@ -152,9 +201,24 @@ function beep() {
     o.start(st.ctx.currentTime + d); o.stop(st.ctx.currentTime + d + .2);
   });
 }
+function startAlarm() {
+  st.alarmed = true;
+  $('hero').classList.add('alarm'); $('stopAlarm').hidden = false;
+  const ring = () => { navigator.vibrate && navigator.vibrate([300, 150, 300]); if (st.sound) beep(); };
+  ring(); clearInterval(st.ringTimer); st.ringTimer = setInterval(ring, 3000);
+}
+function stopAlarm() {
+  clearInterval(st.ringTimer); st.ringTimer = null;
+  $('hero').classList.remove('alarm'); $('stopAlarm').hidden = true;
+}
+function setSound(on, preview) {
+  st.sound = on; store.set('sound', on ? 1 : 0);
+  $('soundBtn').textContent = 'Ton bei Alarm: ' + (on ? 'an' : 'aus'); $('soundBtn').setAttribute('aria-pressed', on);
+  if (on && preview) beep();
+}
 function setTarget(v) {
   st.target = Math.max(30, Math.min(100, v)); store.set('target', st.target);
-  $('target').textContent = st.target; $('mark').style.left = st.target + '%'; st.alarmed = false;
+  $('target').textContent = st.target; $('mark').style.left = pos(st.target) + '%'; st.alarmed = false; stopAlarm();
 }
 
 function drawChart() {
@@ -186,36 +250,80 @@ function onData(e) {
   $('rc').textContent = rc + ' (0x' + rc.toString(16) + ')';
   $('ra').textContent = ra + ' (0x' + ra.toString(16) + ')';
   $('core').textContent = fmt(c); $('amb').textContent = fmt(a);
-  $('fill').style.width = Math.max(0, Math.min(100, c)) + '%';
+  $('needle').style.left = pos(c) + '%'; showStage(c);
   const now = Date.now(); st.hist.push({ t: now, c, a });
   if (st.hist.length > 4000) st.hist.splice(0, 500);
   if (st.log.length < 8000) st.log.push([new Date(now).toISOString(), rc, ra, c.toFixed(1), a.toFixed(1), Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')].join(';'));
   const hot = c >= st.target; $('hero').classList.toggle('hot', hot);
-  if (hot && !st.alarmed) { st.alarmed = true; navigator.vibrate && navigator.vibrate([300, 150, 300, 150, 600]); beep(); }
-  if (c < st.target - 1) st.alarmed = false;
+  if (hot && !st.alarmed) startAlarm();
+  if (c < st.target - 1) { st.alarmed = false; stopAlarm(); }
   drawChart();
 }
 
+const seen = new WeakSet();
+let abortWait = null;
+const sget = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const sset = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+function showConnect(label) { $('connect').hidden = false; $('connect').textContent = label; }
+
+async function attach(dev) {
+  st.dev = dev; sset('devId', dev.id); sset('devName', dev.name || '');
+  if (!seen.has(dev)) { seen.add(dev); dev.addEventListener('gattserverdisconnected', onLost); }
+  setStatus('Verbinde mit ' + (dev.name || 'Gerät') + ' …', 'busy');
+  const server = await dev.gatt.connect();
+  const ch = await (await server.getPrimaryService(SERVICE_UUID)).getCharacteristic(CHAR_UUID);
+  ch.addEventListener('characteristicvaluechanged', onData);
+  await ch.startNotifications();
+  st.tries = 0;
+  setStatus('Verbunden · ' + (dev.name || 'Gerät'), 'on'); $('connect').hidden = true;
+  try { await navigator.wakeLock.request('screen'); } catch {}
+}
+function onLost(e) { setStatus('Verbindung verloren – verbinde neu …', 'busy'); showConnect('Anderes Gerät wählen'); retry(e.target); }
+async function retry(dev) {
+  try { await attach(dev); }
+  catch (err) {
+    console.warn(err);
+    if (++st.tries <= 3) { setStatus('Neuer Versuch ' + st.tries + ' von 3 …', 'busy'); setTimeout(() => retry(dev), 2000 * st.tries); return; }
+    st.tries = 0; waitForAdvert(dev);
+  }
+}
+async function waitForAdvert(dev) {
+  showConnect('Anderes Gerät wählen');
+  if (!dev.watchAdvertisements) { setStatus('Nicht erreichbar – zum Verbinden tippen', 'err'); return; }
+  if (abortWait) abortWait.abort();
+  abortWait = new AbortController();
+  const ctl = abortWait;
+  setStatus('Warte auf ' + (dev.name || 'Gerät') + ' …', 'busy');
+  dev.addEventListener('advertisementreceived', () => { ctl.abort(); retry(dev); }, { once: true });
+  try { await dev.watchAdvertisements({ signal: ctl.signal }); }
+  catch (err) { console.warn(err); setStatus('Nicht erreichbar – zum Verbinden tippen', 'err'); }
+}
+async function autoConnect() {
+  if (!navigator.bluetooth || !navigator.bluetooth.getDevices) { setStatus('Zum Verbinden tippen'); return; }
+  try {
+    const devs = await navigator.bluetooth.getDevices(), id = sget('devId');
+    const dev = devs.find(d => d.id === id) || (devs.length === 1 ? devs[0] : null);
+    if (!dev) { setStatus('Zum Verbinden tippen'); return; }
+    retry(dev);
+  } catch (err) { console.warn(err); setStatus('Zum Verbinden tippen'); }
+}
 async function connect() {
   if (!navigator.bluetooth) { setStatus('Web Bluetooth fehlt: Chrome über https:// nutzen', 'err'); return; }
   try {
-    st.ctx = st.ctx || new (window.AudioContext || window.webkitAudioContext)();
+    if (abortWait) abortWait.abort();
     setStatus('Suche Gerät …', 'busy');
     const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE_UUID] });
-    dev.addEventListener('gattserverdisconnected', () => {
-      setStatus('Verbindung getrennt', 'err'); $('connect').hidden = false; $('connect').textContent = 'Erneut verbinden';
-    });
-    setStatus('Verbinde …', 'busy');
-    const server = await dev.gatt.connect();
-    const ch = await (await server.getPrimaryService(SERVICE_UUID)).getCharacteristic(CHAR_UUID);
-    ch.addEventListener('characteristicvaluechanged', onData);
-    await ch.startNotifications();
-    setStatus('Verbunden · ' + (dev.name || 'Gerät'), 'on'); $('connect').hidden = true;
-    try { await navigator.wakeLock.request('screen'); } catch {}
-  } catch (err) { console.error(err); setStatus('Fehler: ' + err.message, 'err'); }
+    await attach(dev);
+  } catch (err) { console.error(err); setStatus('Fehler: ' + err.message, 'err'); showConnect('Gerät auswählen'); }
 }
+document.addEventListener('pointerdown', () => {
+  try { st.ctx = st.ctx || new (window.AudioContext || window.webkitAudioContext)(); st.ctx.resume(); } catch {}
+});
 
 $('connect').addEventListener('click', connect);
+$('stopAlarm').addEventListener('click', stopAlarm);
+$('hero').addEventListener('click', () => { if (st.ringTimer) stopAlarm(); });
+$('soundBtn').addEventListener('click', () => setSound(!st.sound, true));
 $('minus').addEventListener('click', () => setTarget(st.target - 1));
 $('plus').addEventListener('click', () => setTarget(st.target + 1));
 $('offC').addEventListener('change', e => store.set('offC', e.target.value));
@@ -227,7 +335,8 @@ $('copyLog').addEventListener('click', async () => {
   setTimeout(() => $('copyLog').textContent = 'Messprotokoll kopieren', 2500);
 });
 $('offC').value = store.get('offC', 21); $('offA').value = store.get('offA', 23);
-setTarget(store.get('target', 60)); drawChart();
+setSound(store.get('sound', 1) === 1, false); buildStages(); setTarget(store.get('target', 60)); drawChart();
+autoConnect();
 </script>
 </body>
 </html>
