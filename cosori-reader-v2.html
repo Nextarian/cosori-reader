@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#e8eef2">
+<title>Cosori Direkt-Reader</title>
+<style>
+  :root {
+    --bg:#e8eef2; --surface:#f8fafb; --ink:#13232f; --muted:#5d7080; --line:#cfdae2;
+    --core:#d4381d; --core-soft:#f6d9d2; --amb:#1d6b86; --ok:#2f8a57; --warn:#b7791f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1a22; --surface:#172530; --ink:#e9f0f4; --muted:#8ea3b2; --line:#26394a;
+            --core:#ff6a4d; --core-soft:#3a2420; --amb:#5fc0df; --ok:#4cc386; --warn:#e3b04b; }
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; background:var(--bg); color:var(--ink); }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; min-height:100dvh;
+         padding: env(safe-area-inset-top) 0 0; }
+  main { max-width:520px; margin:0 auto; padding:14px 14px 0; display:flex; flex-direction:column; gap:12px; }
+  header { display:flex; align-items:center; justify-content:space-between; }
+  h1 { font-size:18px; font-weight:650; margin:0; letter-spacing:.2px; }
+  .chip { display:flex; align-items:center; gap:8px; padding:7px 12px; border-radius:99px; background:var(--surface);
+          border:1px solid var(--line); font-size:13px; color:var(--muted); max-width:70%; }
+  .chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #dot { width:9px; height:9px; border-radius:50%; background:var(--muted); flex:none; }
+  #dot.on { background:var(--ok); } #dot.busy { background:var(--warn); } #dot.err { background:var(--core); }
+
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:20px; padding:18px; }
+  .label { font-size:13px; color:var(--muted); margin:0; }
+  .hero { padding:20px 18px 16px; transition:background .3s, border-color .3s; }
+  .hero.hot { background:var(--core-soft); border-color:var(--core); }
+  .big { display:flex; align-items:baseline; gap:6px; margin:4px 0 16px; line-height:1; }
+  #core { font-size:clamp(68px, 24vw, 112px); font-weight:720; font-variant-numeric:tabular-nums; letter-spacing:-2px; color:var(--core); }
+  .big small { font-size:26px; font-weight:560; color:var(--muted); }
+  .gauge { position:relative; height:14px; border-radius:99px; background:var(--line); overflow:visible; }
+  #fill { height:100%; width:0; border-radius:99px; background:var(--core); transition:width .6s ease; }
+  #mark { position:absolute; top:-5px; width:3px; height:24px; border-radius:2px; background:var(--ink); left:60%; transform:translateX(-1px); transition:left .2s; }
+  .scale { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-top:8px; }
+
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .val { font-size:34px; font-weight:680; font-variant-numeric:tabular-nums; margin-top:6px; }
+  #amb { color:var(--amb); }
+  .stepper { display:flex; align-items:center; justify-content:space-between; margin-top:6px; }
+  .stepper b { font-size:34px; font-weight:680; font-variant-numeric:tabular-nums; }
+  .stepper button { width:44px; height:44px; border-radius:50%; border:1px solid var(--line); background:var(--bg);
+                    color:var(--ink); font-size:22px; line-height:1; }
+  .stepper button:active { background:var(--line); }
+
+  #chart { width:100%; height:auto; display:block; margin-top:8px; }
+  details summary { cursor:pointer; font-size:15px; font-weight:600; list-style:none; display:flex; justify-content:space-between; }
+  details summary::after { content:"▾"; color:var(--muted); }
+  details[open] summary::after { content:"▴"; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; }
+  .grid div { background:var(--bg); border-radius:12px; padding:10px 12px; }
+  .grid .k { font-size:12px; color:var(--muted); }
+  .grid .v { font-size:17px; font-weight:620; font-variant-numeric:tabular-nums; margin-top:2px; }
+  .offs { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
+  .offs label { font-size:12px; color:var(--muted); display:flex; flex-direction:column; gap:4px; }
+  .offs input { font-size:17px; padding:9px 12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--ink); width:100%; }
+  #bytes { display:flex; flex-wrap:wrap; gap:4px; margin-top:14px; font-family:ui-monospace, Menlo, monospace; font-size:13px; }
+  #bytes span { padding:3px 5px; border-radius:6px; background:var(--bg); color:var(--muted); }
+  #bytes .c { background:var(--core); color:#fff; } #bytes .a { background:var(--amb); color:#fff; }
+  .legend { font-size:12px; color:var(--muted); margin:8px 0 0; }
+  .ghost { margin-top:12px; width:100%; padding:12px; border-radius:12px; border:1px solid var(--line); background:transparent; color:var(--ink); font-size:15px; font-weight:600; }
+
+  .bar { position:sticky; bottom:0; padding:10px 0 calc(10px + env(safe-area-inset-bottom)); margin-top:auto;
+         background:linear-gradient(to top, var(--bg) 70%, transparent); }
+  .bar:has(#connect[hidden]) { display:none; }
+  #connect { width:100%; padding:17px; border:0; border-radius:16px; background:var(--core); color:#fff; font-size:17px; font-weight:680; }
+  #connect:active { filter:brightness(.9); }
+  .spacer { height:8px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Cosori Direkt-Reader</h1>
+    <div class="chip"><i id="dot"></i><span id="status">Getrennt</span></div>
+  </header>
+
+  <section class="card hero" id="hero">
+    <p class="label">Kerntemperatur (Spitze)</p>
+    <div class="big"><span id="core">––,–</span><small>°C</small></div>
+    <div class="gauge"><div id="fill"></div><div id="mark"></div></div>
+    <div class="scale"><span>0</span><span>50</span><span>100 °C</span></div>
+  </section>
+
+  <section class="two">
+    <div class="card"><p class="label">Griff / Umgebung</p><div class="val"><span id="amb">––,–</span> °C</div></div>
+    <div class="card"><p class="label">Zieltemperatur</p>
+      <div class="stepper"><button id="minus" aria-label="Ziel senken">−</button><b id="target">60</b><button id="plus" aria-label="Ziel erhöhen">+</button></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <p class="label">Verlauf der letzten 10 Minuten</p>
+    <svg id="chart" viewBox="0 0 320 120" role="img" aria-label="Temperaturverlauf"></svg>
+  </section>
+
+  <section class="card">
+    <details open>
+      <summary>Debug</summary>
+      <div class="grid">
+        <div><div class="k">Rohwert Kern</div><div class="v" id="rc">–</div></div>
+        <div><div class="k">Rohwert Griff</div><div class="v" id="ra">–</div></div>
+        <div><div class="k">Paketlänge</div><div class="v" id="len">–</div></div>
+        <div><div class="k">Pakete</div><div class="v" id="cnt">0</div></div>
+      </div>
+      <div class="offs">
+        <label>Byte-Position Kern<input id="offC" type="number" inputmode="numeric" min="0" max="60" value="21"></label>
+        <label>Byte-Position Griff<input id="offA" type="number" inputmode="numeric" min="0" max="60" value="23"></label>
+      </div>
+      <div id="bytes"></div>
+      <p class="legend"><b style="color:var(--core)">Rot</b> = Kern, <b style="color:var(--amb)">Blau</b> = Griff (je 2 Bytes, Little Endian)</p>
+      <button class="ghost" id="copyLog">Messprotokoll kopieren</button>
+    </details>
+  </section>
+
+  <div class="bar"><button id="connect">Mit Thermometer verbinden</button></div>
+</main>
+
+<script>
+const SERVICE_UUID = 0xfff0, CHAR_UUID = 0xfff1;
+// [Rohwert, °C], aufsteigend. Hier später saubere Messpunkte eintragen.
+const CAL = [[338, 0.0], [847, 21.0], [935, 33.0], [2082, 100.0]];
+const WINDOW_MS = 10 * 60 * 1000;
+
+const $ = id => document.getElementById(id);
+const st = { target: 60, hist: [], log: [], n: 0, alarmed: false, ctx: null };
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : +v; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} }
+};
+const fmt = x => x.toFixed(1).replace('.', ',');
+
+function toCelsius(raw) {
+  let i = 0;
+  while (i < CAL.length - 2 && raw > CAL[i + 1][0]) i++;
+  const [r1, t1] = CAL[i], [r2, t2] = CAL[i + 1];
+  return t1 + (raw - r1) * (t2 - t1) / (r2 - r1);
+}
+function setStatus(text, kind) { $('status').textContent = text; $('dot').className = kind || ''; }
+
+function beep() {
+  if (!st.ctx) return;
+  [0, .35, .7].forEach(d => {
+    const o = st.ctx.createOscillator(), g = st.ctx.createGain();
+    o.frequency.value = 880; g.gain.value = .25;
+    o.connect(g); g.connect(st.ctx.destination);
+    o.start(st.ctx.currentTime + d); o.stop(st.ctx.currentTime + d + .2);
+  });
+}
+function setTarget(v) {
+  st.target = Math.max(30, Math.min(100, v)); store.set('target', st.target);
+  $('target').textContent = st.target; $('mark').style.left = st.target + '%'; st.alarmed = false;
+}
+
+function drawChart() {
+  const svg = $('chart'), now = Date.now(), pts = st.hist.filter(p => now - p.t <= WINDOW_MS);
+  if (pts.length < 2) { svg.innerHTML = '<text x="160" y="64" text-anchor="middle" fill="var(--muted)" font-size="13">Warte auf Messwerte …</text>'; return; }
+  const vals = pts.flatMap(p => [p.c, p.a]).concat(st.target);
+  let lo = Math.min(...vals) - 2, hi = Math.max(...vals) + 2;
+  if (hi - lo < 15) hi = lo + 15;
+  const X = t => 8 + (312 - 8) * (t - (now - WINDOW_MS)) / WINDOW_MS, Y = v => 112 - 104 * (v - lo) / (hi - lo);
+  const path = k => pts.map((p, i) => (i ? 'L' : 'M') + X(p.t).toFixed(1) + ' ' + Y(p[k]).toFixed(1)).join('');
+  svg.innerHTML =
+    `<line x1="8" x2="312" y1="${Y(st.target)}" y2="${Y(st.target)}" stroke="var(--ink)" stroke-dasharray="4 4" opacity=".45"/>` +
+    `<path d="${path('a')}" fill="none" stroke="var(--amb)" stroke-width="2" stroke-linejoin="round"/>` +
+    `<path d="${path('c')}" fill="none" stroke="var(--core)" stroke-width="3" stroke-linejoin="round"/>` +
+    `<text x="8" y="12" fill="var(--muted)" font-size="11">${hi.toFixed(0)} °C</text>` +
+    `<text x="8" y="116" fill="var(--muted)" font-size="11">${lo.toFixed(0)} °C</text>`;
+}
+
+function onData(e) {
+  const v = e.target.value, bytes = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+  const oc = +$('offC').value, oa = +$('offA').value;
+  st.n++; $('cnt').textContent = st.n; $('len').textContent = v.byteLength + ' Bytes';
+  $('bytes').innerHTML = Array.from(bytes).map((b, i) => {
+    const cls = (i === oc || i === oc + 1) ? 'c' : (i === oa || i === oa + 1) ? 'a' : '';
+    return `<span class="${cls}" title="Byte ${i}">${b.toString(16).padStart(2, '0')}</span>`;
+  }).join('');
+  if (v.byteLength < Math.max(oc, oa) + 2) { $('rc').textContent = $('ra').textContent = 'zu kurz'; return; }
+  const rc = v.getUint16(oc, true), ra = v.getUint16(oa, true), c = toCelsius(rc), a = toCelsius(ra);
+  $('rc').textContent = rc + ' (0x' + rc.toString(16) + ')';
+  $('ra').textContent = ra + ' (0x' + ra.toString(16) + ')';
+  $('core').textContent = fmt(c); $('amb').textContent = fmt(a);
+  $('fill').style.width = Math.max(0, Math.min(100, c)) + '%';
+  const now = Date.now(); st.hist.push({ t: now, c, a });
+  if (st.hist.length > 4000) st.hist.splice(0, 500);
+  if (st.log.length < 8000) st.log.push([new Date(now).toISOString(), rc, ra, c.toFixed(1), a.toFixed(1), Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')].join(';'));
+  const hot = c >= st.target; $('hero').classList.toggle('hot', hot);
+  if (hot && !st.alarmed) { st.alarmed = true; navigator.vibrate && navigator.vibrate([300, 150, 300, 150, 600]); beep(); }
+  if (c < st.target - 1) st.alarmed = false;
+  drawChart();
+}
+
+async function connect() {
+  if (!navigator.bluetooth) { setStatus('Web Bluetooth fehlt: Chrome über https:// nutzen', 'err'); return; }
+  try {
+    st.ctx = st.ctx || new (window.AudioContext || window.webkitAudioContext)();
+    setStatus('Suche Gerät …', 'busy');
+    const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE_UUID] });
+    dev.addEventListener('gattserverdisconnected', () => {
+      setStatus('Verbindung getrennt', 'err'); $('connect').hidden = false; $('connect').textContent = 'Erneut verbinden';
+    });
+    setStatus('Verbinde …', 'busy');
+    const server = await dev.gatt.connect();
+    const ch = await (await server.getPrimaryService(SERVICE_UUID)).getCharacteristic(CHAR_UUID);
+    ch.addEventListener('characteristicvaluechanged', onData);
+    await ch.startNotifications();
+    setStatus('Verbunden · ' + (dev.name || 'Gerät'), 'on'); $('connect').hidden = true;
+    try { await navigator.wakeLock.request('screen'); } catch {}
+  } catch (err) { console.error(err); setStatus('Fehler: ' + err.message, 'err'); }
+}
+
+$('connect').addEventListener('click', connect);
+$('minus').addEventListener('click', () => setTarget(st.target - 1));
+$('plus').addEventListener('click', () => setTarget(st.target + 1));
+$('offC').addEventListener('change', e => store.set('offC', e.target.value));
+$('offA').addEventListener('change', e => store.set('offA', e.target.value));
+$('copyLog').addEventListener('click', async () => {
+  const csv = 'zeit;rawKern;rawGriff;kern;griff;hex\n' + st.log.join('\n');
+  try { await navigator.clipboard.writeText(csv); $('copyLog').textContent = 'Kopiert · ' + st.log.length + ' Zeilen'; }
+  catch { $('copyLog').textContent = 'Kopieren nicht möglich'; }
+  setTimeout(() => $('copyLog').textContent = 'Messprotokoll kopieren', 2500);
+});
+$('offC').value = store.get('offC', 21); $('offA').value = store.get('offA', 23);
+setTarget(store.get('target', 60)); drawChart();
+</script>
+</body>
+</html>
