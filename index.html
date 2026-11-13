@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#e8eef2">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>Cosori Direkt-Reader</title>
 <style>
   :root {
@@ -59,6 +62,10 @@
   .stages b { display:block; font-weight:650; }
   .stages span { color:var(--muted); }
 
+  .herohead { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+  .eta { text-align:right; }
+  .eta b { display:block; margin-top:2px; font-size:20px; font-weight:680; font-variant-numeric:tabular-nums; }
+  #pick { display:block; width:100%; margin-top:6px; padding:12px; border:0; background:transparent; color:var(--muted); font-size:14px; font-weight:600; text-decoration:underline; }
   .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .val { font-size:34px; font-weight:680; font-variant-numeric:tabular-nums; margin-top:6px; }
   #amb { color:var(--amb); }
@@ -101,7 +108,7 @@
   </header>
 
   <section class="card hero" id="hero">
-    <p class="label">Kerntemperatur (Spitze)</p>
+    <div class="herohead"><p class="label">Kerntemperatur (Spitze)</p><div class="eta"><p class="label">Restdauer</p><b id="eta">–</b></div></div>
     <div class="big"><span id="core">––,–</span><small>°C</small></div>
     <div class="pill" id="stage">Noch keine Messung</div>
     <div class="gauge"><div id="bands"></div><div id="mark"></div><div id="needle"></div></div>
@@ -142,7 +149,7 @@
     </details>
   </section>
 
-  <div class="bar"><button id="connect">Mit Thermometer verbinden</button></div>
+  <div class="bar"><button id="connect">Verbinden</button><button id="pick" hidden>Anderes Gerät wählen</button></div>
 </main>
 
 <script>
@@ -150,6 +157,7 @@ const SERVICE_UUID = 0xfff0, CHAR_UUID = 0xfff1;
 // [Rohwert, °C], aufsteigend. Hier später saubere Messpunkte eintragen.
 const CAL = [[338, 0.0], [847, 21.0], [935, 33.0], [2082, 100.0]];
 const WINDOW_MS = 10 * 60 * 1000;
+const ETA_WINDOW = 3 * 60 * 1000;   // Zeitfenster für die Restdauer-Schätzung
 // Garstufen (Rind, Kerntemperatur). Farben und Grenzen hier anpassen.
 const SCALE_MIN = 30, SCALE_MAX = 90;
 const STAGES = [
@@ -224,7 +232,7 @@ function setSound(on, preview) {
 }
 function setTarget(v) {
   st.target = Math.max(30, Math.min(100, v)); store.set('target', st.target);
-  $('target').textContent = st.target; $('mark').style.left = pos(st.target) + '%'; st.alarmed = false; stopAlarm();
+  $('target').textContent = st.target; $('mark').style.left = pos(st.target) + '%'; st.alarmed = false; stopAlarm(); updateEta();
 }
 
 function drawChart() {
@@ -263,17 +271,37 @@ function onData(e) {
   const hot = c >= st.target; $('hero').classList.toggle('hot', hot);
   if (hot && !st.alarmed) startAlarm();
   if (c < st.target - 1) { st.alarmed = false; stopAlarm(); }
-  drawChart();
+  drawChart(); updateEta();
+}
+
+function fmtDur(min) {
+  if (min < 1) return 'unter 1 min';
+  const m = Math.round(min);
+  return m < 60 ? 'ca. ' + m + ' min' : 'ca. ' + Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') + ' min';
+}
+function updateEta() {
+  const el = $('eta'), now = Date.now(), pts = st.hist.filter(p => now - p.t <= ETA_WINDOW);
+  const last = pts[pts.length - 1];
+  if (!last || now - last.t > 20000) { el.textContent = '–'; return; }
+  if (last.c >= st.target) { el.textContent = 'Ziel erreicht'; return; }
+  if (pts.length < 5 || last.t - pts[0].t < 60000) { el.textContent = 'berechne …'; return; }
+  const t0 = pts[0].t, n = pts.length;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const p of pts) { const x = (p.t - t0) / 60000; sx += x; sy += p.c; sxx += x * x; sxy += x * p.c; }
+  const d = n * sxx - sx * sx, slope = d ? (n * sxy - sx * sy) / d : 0;   // °C pro Minute
+  const min = slope >= 0.05 ? (st.target - last.c) / slope : Infinity;
+  el.textContent = min > 600 ? '–' : fmtDur(min);
 }
 
 const seen = new WeakSet();
 let abortWait = null;
 const sget = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const sset = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
-function showConnect(label) { $('connect').hidden = false; $('connect').textContent = label; }
+function updatePick() { $('pick').hidden = !sget('devName'); }
+function showConnect() { $('connect').hidden = false; $('connect').textContent = 'Verbinden'; updatePick(); }
 
 async function attach(dev) {
-  st.dev = dev; sset('devId', dev.id); sset('devName', dev.name || '');
+  st.dev = dev; sset('devId', dev.id); sset('devName', dev.name || ''); updatePick();
   if (!seen.has(dev)) { seen.add(dev); dev.addEventListener('gattserverdisconnected', onLost); }
   setStatus('Verbinde mit ' + (dev.name || 'Gerät') + ' …', 'busy');
   const server = await dev.gatt.connect();
@@ -284,7 +312,7 @@ async function attach(dev) {
   setStatus('Verbunden · ' + (dev.name || 'Gerät'), 'on'); $('connect').hidden = true;
   try { await navigator.wakeLock.request('screen'); } catch {}
 }
-function onLost(e) { setStatus('Verbindung verloren – verbinde neu …', 'busy'); showConnect('Anderes Gerät wählen'); retry(e.target); }
+function onLost(e) { setStatus('Verbindung verloren – verbinde neu …', 'busy'); showConnect(); retry(e.target); }
 async function retry(dev) {
   try { await attach(dev); }
   catch (err) {
@@ -294,7 +322,7 @@ async function retry(dev) {
   }
 }
 async function waitForAdvert(dev) {
-  showConnect('Anderes Gerät wählen');
+  showConnect();
   if (!dev.watchAdvertisements) { setStatus('Nicht erreichbar – zum Verbinden tippen', 'err'); return; }
   if (abortWait) abortWait.abort();
   abortWait = new AbortController();
@@ -304,29 +332,48 @@ async function waitForAdvert(dev) {
   try { await dev.watchAdvertisements({ signal: ctl.signal }); }
   catch (err) { console.warn(err); setStatus('Nicht erreichbar – zum Verbinden tippen', 'err'); }
 }
+// Das vom Browser gemerkte Gerät, falls getDevices() verfügbar ist
+async function findSaved() {
+  if (!navigator.bluetooth || !navigator.bluetooth.getDevices) return null;
+  const devs = await navigator.bluetooth.getDevices(), id = sget('devId');
+  return devs.find(d => d.id === id) || (devs.length === 1 ? devs[0] : null);
+}
 async function autoConnect() {
-  if (!navigator.bluetooth || !navigator.bluetooth.getDevices) { setStatus('Zum Verbinden tippen'); return; }
+  try { const dev = await findSaved(); if (dev) retry(dev); else setStatus('Zum Verbinden tippen'); }
+  catch (err) { console.warn(err); setStatus('Zum Verbinden tippen'); }
+}
+// Auswahlfenster: mit gemerktem Namen zeigt es nur dieses Gerät, mit any=true alle
+async function pick(any) {
+  if (!navigator.bluetooth) { setStatus('Web Bluetooth fehlt: Chrome über https:// nutzen', 'err'); return; }
+  if (abortWait) abortWait.abort();
+  const name = sget('devName'), byName = !any && !!name;
+  const opts = byName ? { filters: [{ name }], optionalServices: [SERVICE_UUID] } : { acceptAllDevices: true, optionalServices: [SERVICE_UUID] };
   try {
-    const devs = await navigator.bluetooth.getDevices(), id = sget('devId');
-    const dev = devs.find(d => d.id === id) || (devs.length === 1 ? devs[0] : null);
-    if (!dev) { setStatus('Zum Verbinden tippen'); return; }
-    retry(dev);
-  } catch (err) { console.warn(err); setStatus('Zum Verbinden tippen'); }
+    setStatus('Suche Gerät …', 'busy');
+    await attach(await navigator.bluetooth.requestDevice(opts));
+  } catch (err) {
+    console.error(err);
+    setStatus(byName && err.name === 'NotFoundError' ? 'Gemerktes Gerät nicht gefunden – „Anderes Gerät wählen“ probieren' : 'Fehler: ' + err.message, 'err');
+    showConnect();
+  }
 }
 async function connect() {
   if (!navigator.bluetooth) { setStatus('Web Bluetooth fehlt: Chrome über https:// nutzen', 'err'); return; }
+  if (abortWait) abortWait.abort();
+  st.tries = 0;
   try {
-    if (abortWait) abortWait.abort();
-    setStatus('Suche Gerät …', 'busy');
-    const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE_UUID] });
-    await attach(dev);
-  } catch (err) { console.error(err); setStatus('Fehler: ' + err.message, 'err'); showConnect('Gerät auswählen'); }
+    setStatus('Suche gemerktes Gerät …', 'busy');
+    const dev = await findSaved();
+    if (dev) { retry(dev); return; }
+  } catch (err) { console.warn(err); }
+  pick(false);
 }
 document.addEventListener('pointerdown', () => {
   try { st.ctx = st.ctx || new (window.AudioContext || window.webkitAudioContext)(); st.ctx.resume(); } catch {}
 });
 
 $('connect').addEventListener('click', connect);
+$('pick').addEventListener('click', () => pick(true));
 $('stopAlarm').addEventListener('click', stopAlarm);
 $('hero').addEventListener('click', () => { if (st.ringTimer) stopAlarm(); });
 $('soundBtn').addEventListener('click', () => setSound(!st.sound, true));
@@ -342,7 +389,9 @@ $('copyLog').addEventListener('click', async () => {
 });
 $('offC').value = store.get('offC', 21); $('offA').value = store.get('offA', 23);
 setSound(store.get('sound', 1) === 1, false); buildStages(); setTarget(store.get('target', 60)); drawChart();
+updatePick(); setInterval(updateEta, 5000);
 autoConnect();
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 </script>
 </body>
 </html>
