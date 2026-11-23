@@ -155,10 +155,11 @@
 <script>
 const SERVICE_UUID = 0xfff0, CHAR_UUID = 0xfff1;
 // Kennlinie je Fühler als NTC-Modell: Rohwert = N / (1 + k * exp(B * (1/T - 1/298,15))) + d   (T in Kelvin)
-// Gemessene Stützpunkte (23.11.2026): Eiswasser 0 °C, Raumtemperatur 24 °C (Spitze 721, Griff 739), 0 °C = Spitze 320, Griff 345.
-// Der Wert bei 100 °C (Spitze 2082) stammt noch aus der alten Tabelle und ist ungeprüft. Der Griff nimmt dieselbe Schaltung wie die Spitze an.
+// Gemessene Stützpunkte (23.11.2026): Eiswasser 0 °C (Spitze 320, Griff 345) und Raumtemperatur 24 °C (Spitze 721).
+// Der Wert bei 100 °C (Spitze 2082) stammt noch aus der alten Tabelle und ist ungeprüft.
+// Der Griff nimmt dieselbe Schaltung wie die Spitze an (N, B gleich) und wird nur über den Eispunkt eingestellt (k).
 const NTC_CORE = { N: 2615.20, k: 2.52837, B: 3396.62, d: 0 };
-const NTC_AMB  = { N: 2615.20, k: 2.60288, B: 3396.62, d: 33.067 };
+const NTC_AMB  = { N: 2615.20, k: 2.31961, B: 3396.62, d: 0 };
 const WINDOW_MS = 10 * 60 * 1000;
 const ETA_WINDOW = 3 * 60 * 1000;   // Zeitfenster für die Restdauer-Schätzung
 // Garstufen (Rind, Kerntemperatur). Farben und Grenzen hier anpassen.
