@@ -154,8 +154,10 @@
 
 <script>
 const SERVICE_UUID = 0xfff0, CHAR_UUID = 0xfff1;
-// [Rohwert, °C], aufsteigend. Hier später saubere Messpunkte eintragen.
-const CAL = [[338, 0.0], [847, 21.0], [935, 33.0], [2082, 100.0]];
+// Kalibrierung je Fühler: [Rohwert, °C], aufsteigend.
+// 0 °C: gemessen im Eiswasser (23.11.2026), Spitze 320, Griff 345. Die übrigen Punkte sind noch ungeprüft.
+const CAL_CORE = [[320, 0.0], [847, 21.0], [935, 33.0], [2082, 100.0]];
+const CAL_AMB  = [[345, 0.0], [847, 21.0], [935, 33.0], [2082, 100.0]];
 const WINDOW_MS = 10 * 60 * 1000;
 const ETA_WINDOW = 3 * 60 * 1000;   // Zeitfenster für die Restdauer-Schätzung
 // Garstufen (Rind, Kerntemperatur). Farben und Grenzen hier anpassen.
@@ -198,10 +200,10 @@ const store = {
 };
 const fmt = x => x.toFixed(1).replace('.', ',');
 
-function toCelsius(raw) {
+function toCelsius(raw, cal) {
   let i = 0;
-  while (i < CAL.length - 2 && raw > CAL[i + 1][0]) i++;
-  const [r1, t1] = CAL[i], [r2, t2] = CAL[i + 1];
+  while (i < cal.length - 2 && raw > cal[i + 1][0]) i++;
+  const [r1, t1] = cal[i], [r2, t2] = cal[i + 1];
   return t1 + (raw - r1) * (t2 - t1) / (r2 - r1);
 }
 function setStatus(text, kind) { $('status').textContent = text; $('dot').className = kind || ''; }
@@ -260,7 +262,7 @@ function onData(e) {
     return `<span class="${cls}" title="Byte ${i}">${b.toString(16).padStart(2, '0')}</span>`;
   }).join('');
   if (v.byteLength < Math.max(oc, oa) + 2) { $('rc').textContent = $('ra').textContent = 'zu kurz'; return; }
-  const rc = v.getUint16(oc, true), ra = v.getUint16(oa, true), c = toCelsius(rc), a = toCelsius(ra);
+  const rc = v.getUint16(oc, true), ra = v.getUint16(oa, true), c = toCelsius(rc, CAL_CORE), a = toCelsius(ra, CAL_AMB);
   $('rc').textContent = rc + ' (0x' + rc.toString(16) + ')';
   $('ra').textContent = ra + ' (0x' + ra.toString(16) + ')';
   $('core').textContent = fmt(c); $('amb').textContent = fmt(a);
